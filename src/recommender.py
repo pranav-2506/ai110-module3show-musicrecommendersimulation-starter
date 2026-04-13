@@ -70,10 +70,25 @@ def load_songs(csv_path: str) -> List[Dict]:
 # Step 2: score_song
 # ---------------------------------------------------------------------------
 
-def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, str]:
+_DEFAULT_WEIGHTS = {
+    "mood":         2.5,
+    "genre":        1.5,
+    "energy":       3.0,
+    "valence":      2.0,
+    "tempo":        1.0,
+    "acousticness": 0.5,
+}
+
+
+def score_song(
+    user_prefs: Dict,
+    song: Dict,
+    weights: Dict = None,
+) -> Tuple[float, str]:
     """Score one song against user preferences; return (score, explanation string).
 
-    Maximum possible score: 10.5
+    Pass a custom `weights` dict to override any default weight for experiments.
+    Default maximum possible score: 10.5
       mood match        +2.5
       genre match       +1.5
       energy proximity  up to +3.0
@@ -81,38 +96,39 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, str]:
       tempo proximity   up to +1.0
       acousticness prox up to +0.5
     """
+    w = {**_DEFAULT_WEIGHTS, **(weights or {})}
     score = 0.0
     reasons: List[str] = []
 
     # Categorical matches
     if song.get("mood") == user_prefs.get("mood"):
-        score += 2.5
-        reasons.append("mood match (+2.5)")
+        score += w["mood"]
+        reasons.append(f"mood match (+{w['mood']})")
 
     if song.get("genre") == user_prefs.get("genre"):
-        score += 1.5
-        reasons.append("genre match (+1.5)")
+        score += w["genre"]
+        reasons.append(f"genre match (+{w['genre']})")
 
     # Numeric proximity features
     if "energy" in user_prefs:
-        ep = _proximity(song["energy"], float(user_prefs["energy"])) * 3.0
+        ep = _proximity(song["energy"], float(user_prefs["energy"])) * w["energy"]
         score += ep
         reasons.append(f"energy proximity (+{ep:.2f})")
 
     if "valence" in user_prefs:
-        vp = _proximity(song["valence"], float(user_prefs["valence"])) * 2.0
+        vp = _proximity(song["valence"], float(user_prefs["valence"])) * w["valence"]
         score += vp
         reasons.append(f"valence proximity (+{vp:.2f})")
 
     if "tempo_bpm" in user_prefs:
         song_t = (song["tempo_bpm"] - _BPM_MIN) / (_BPM_MAX - _BPM_MIN)
         user_t = (float(user_prefs["tempo_bpm"]) - _BPM_MIN) / (_BPM_MAX - _BPM_MIN)
-        tp = _proximity(song_t, user_t) * 1.0
+        tp = _proximity(song_t, user_t) * w["tempo"]
         score += tp
         reasons.append(f"tempo proximity (+{tp:.2f})")
 
     if "acousticness" in user_prefs:
-        ap = _proximity(song["acousticness"], float(user_prefs["acousticness"])) * 0.5
+        ap = _proximity(song["acousticness"], float(user_prefs["acousticness"])) * w["acousticness"]
         score += ap
         reasons.append(f"acousticness proximity (+{ap:.2f})")
 
@@ -128,16 +144,18 @@ def recommend_songs(
     user_prefs: Dict,
     songs: List[Dict],
     k: int = 5,
+    weights: Dict = None,
 ) -> List[Tuple[Dict, float, str]]:
     """Score every song, deduplicate by artist, and return the top-k as (song, score, explanation).
 
+    Pass a custom `weights` dict to run experiments without changing default logic.
     Uses sorted() (not .sort()) so the original list is never mutated.
     sorted() returns a brand-new list in the requested order; .sort() would
     reorder the list in place, which could surprise callers that hold a
     reference to the same list.
     """
     scored = [
-        (song, *score_song(user_prefs, song))
+        (song, *score_song(user_prefs, song, weights=weights))
         for song in songs
     ]
 
